@@ -34,23 +34,26 @@ jobs:
             sudo systemctl enable --now docker
             sudo usermod -aG docker ec2-user
 
-            mkdir -p ~/.docker/cli-plugins
-            curl -SL https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64               -o ~/.docker/cli-plugins/docker-compose
-            chmod +x ~/.docker/cli-plugins/docker-compose
-            sudo ln -sf ~/.docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+            # Ejecutar el resto como ec2-user para evitar errores de permisos
+            sudo -u ec2-user bash << 'INNER'
+              mkdir -p ~/.docker/cli-plugins
+              curl -SL https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64 \
+                -o ~/.docker/cli-plugins/docker-compose
+              chmod +x ~/.docker/cli-plugins/docker-compose
+              ln -sf ~/.docker/cli-plugins/docker-compose ~/.local/bin/docker-compose || true
 
-            cd /home/ec2-user
+              cd /home/ec2-user
+              if [ ! -d transfer-service ]; then
+                git clone --branch qa https://github.com/league-platform/transfer-service.git
+              fi
 
-            if [ ! -d transfer-service ]; then
-              git clone --branch qa https://github.com/league-platform/transfer-service.git
-            fi
+              cd transfer-service
+              git config --global --add safe.directory /home/ec2-user/transfer-service
+              git reset --hard
+              git pull origin qa
 
-            cd transfer-service
-            sudo chown -R ec2-user:ec2-user .
-            git config --global --add safe.directory /home/ec2-user/transfer-service
-            git reset --hard
-            git pull origin qa
-
-            docker compose down || true
-            docker compose up -d --build
+              docker compose down || true
+              docker compose up -d --build
+            INNER
           EOF
+
