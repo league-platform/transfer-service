@@ -15,7 +15,7 @@ jobs:
       HOST: ${{ secrets.EC2_TRANSFER_QA_IP }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up SSH key
@@ -28,29 +28,39 @@ jobs:
       - name: Deploy to EC2 QA
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@$HOST << 'EOF'
+            set -e
+
+            # Update and install required packages
             sudo dnf update -y
             sudo dnf install -y git docker golang
 
+            # Enable Docker and allow ec2-user to use it
             sudo systemctl enable --now docker
             sudo usermod -aG docker ec2-user
 
+            # Install Docker Compose (plugin)
             mkdir -p ~/.docker/cli-plugins
-            curl -SL https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64               -o ~/.docker/cli-plugins/docker-compose
+            curl -SL https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64 \
+              -o ~/.docker/cli-plugins/docker-compose
             chmod +x ~/.docker/cli-plugins/docker-compose
-            sudo ln -sf ~/.docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
 
-            cd /home/ec2-user
+            # Add Docker Compose to PATH
+            mkdir -p ~/.local/bin
+            ln -sf ~/.docker/cli-plugins/docker-compose ~/.local/bin/docker-compose
+            export PATH=$PATH:~/.local/bin
 
+            # Clone or update the transfer-service repo
+            cd ~
             if [ ! -d transfer-service ]; then
               git clone --branch qa https://github.com/league-platform/transfer-service.git
             fi
 
             cd transfer-service
-            sudo chown -R ec2-user:ec2-user .
-            git config --global --add safe.directory /home/ec2-user/transfer-service
+            git config --global --add safe.directory ~/transfer-service
             git reset --hard
             git pull origin qa
 
+            # Run the container
             docker compose down || true
             docker compose up -d --build
           EOF
